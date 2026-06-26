@@ -53,9 +53,11 @@ services:
     container_name: urban-heat-dashboard
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "8501:80"
     volumes:
-      - ./urban-heat-dashboard.html:/usr/share/nginx/html/index.html:ro
+      - ../ISROH2SKILL(Frontend).html:/usr/share/nginx/html/index.html:ro
+      - ../ISROH2SKILL(Frontend).html:/usr/share/nginx/html/ISROH2SKILL(Frontend).html:ro
+      - ../ISROH2SKILL_Live.html:/usr/share/nginx/html/ISROH2SKILL_Live.html:ro
     depends_on:
       api:
         condition: service_healthy
