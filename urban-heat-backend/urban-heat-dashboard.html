@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HeatVision AI — Urban Heat Map</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root {
+      --cyan:#00E5FF; --purple:#7C3AED; --space:#050816; --surface:#0F172A;
+      --surface2:#1E293B; --text:#fff; --dim:rgba(255,255,255,.58);
+      --border:rgba(0,229,255,.16); --glow:rgba(0,229,255,.28);
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',sans-serif;background:var(--space);color:var(--text);min-height:100vh}
+    #bgCanvas{position:fixed;inset:0;z-index:0;pointer-events:none}
+    .scan-line{position:fixed;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);opacity:.08;z-index:1;animation:scan 12s linear infinite}
+    @keyframes scan{from{top:0}to{top:100vh}}
+    #preloader{position:fixed;inset:0;background:var(--space);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;transition:opacity .7s,visibility .7s}
+    #preloader.hidden{opacity:0;visibility:hidden;pointer-events:none}
+    .pre-orb{width:90px;height:90px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#c2410c,#7f1d1d,#050816);box-shadow:0 0 40px rgba(239,68,68,.35);animation:spin 3s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .pre-text{font-family:'Poppins',sans-serif;font-size:.8rem;letter-spacing:.22em;color:var(--cyan)}
+    nav{position:fixed;top:0;left:0;right:0;z-index:100;height:60px;padding:0 24px;display:flex;align-items:center;justify-content:space-between;background:rgba(5,8,22,.92);backdrop-filter:blur(16px);border-bottom:1px solid var(--border)}
+    .logo{font-family:'Poppins',sans-serif;font-weight:700;font-size:1.1rem;display:flex;align-items:center;gap:10px}
+    .logo-icon{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--purple),var(--cyan));display:flex;align-items:center;justify-content:center;box-shadow:0 0 18px var(--glow)}
+    .logo span{color:var(--cyan)}
+    .nav-actions{display:flex;gap:10px;align-items:center}
+    .live-badge{font-size:.65rem;font-weight:700;padding:5px 10px;border-radius:20px;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.35);color:#6EE7B7}
+    .live-badge.warn{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.35);color:#FCD34D}
+    .btn-refresh{padding:8px 16px;border:none;border-radius:8px;font-family:'Poppins',sans-serif;font-weight:600;font-size:.75rem;cursor:pointer;background:linear-gradient(135deg,var(--purple),var(--cyan));color:#fff;box-shadow:0 0 20px rgba(124,58,237,.35);transition:transform .2s}
+    .btn-refresh:hover{transform:translateY(-2px)}
+    .app{position:relative;z-index:2;padding-top:60px}
+    .container{max-width:1440px;margin:0 auto;padding:16px 20px 24px}
+    .hero{margin-bottom:14px;padding:16px 20px;border-radius:14px;border:1px solid var(--border);background:linear-gradient(135deg,rgba(124,58,237,.18),rgba(0,229,255,.06))}
+    .hero-tag{font-size:.65rem;font-weight:700;letter-spacing:.16em;color:#A78BFA;margin-bottom:6px}
+    .hero h1{font-family:'Poppins',sans-serif;font-size:1.35rem;font-weight:800;background:linear-gradient(135deg,#fff,var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .hero p{font-size:.82rem;color:var(--dim);margin-top:4px}
+    .stats{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px}
+    @media(max-width:900px){.stats{grid-template-columns:repeat(3,1fr)}}
+    .stat{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:12px;padding:12px 14px}
+    .stat-label{font-size:.65rem;color:var(--dim);margin-bottom:2px}
+    .stat-val{font-family:'Poppins',sans-serif;font-size:1.25rem;font-weight:800;color:var(--cyan)}
+    .map-shell{border:1px solid var(--border);border-radius:18px;overflow:hidden;background:var(--surface);box-shadow:0 0 50px rgba(0,0,0,.45)}
+    .map-toolbar{padding:10px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);background:rgba(15,23,42,.95);flex-wrap:wrap}
+    .map-title{font-family:'Poppins',sans-serif;font-size:.75rem;font-weight:700;color:var(--cyan);flex:1}
+    .chip{font-size:.62rem;padding:3px 8px;border-radius:20px;border:1px solid var(--border);color:var(--dim)}
+    .map-wrap{position:relative}
+    #map{height:58vh;min-height:380px;background:#0a0f1a}
+    .map-overlay{position:absolute;inset:0;background:rgba(5,8,22,.82);display:flex;align-items:center;justify-content:center;z-index:400;backdrop-filter:blur(4px)}
+    .map-overlay.hidden{display:none}
+    .dock{margin-top:14px;border:1px solid var(--border);border-radius:16px;background:rgba(255,255,255,.03);overflow:hidden}
+    .dock-tabs{display:flex;background:rgba(15,23,42,.8);border-bottom:1px solid var(--border)}
+    .dock-tab{flex:1;padding:12px;border:none;background:transparent;color:var(--dim);font-family:'Poppins',sans-serif;font-weight:600;font-size:.75rem;cursor:pointer;transition:all .25s}
+    .dock-tab.active{background:linear-gradient(135deg,rgba(124,58,237,.35),rgba(0,229,255,.12));color:#fff}
+    .dock-body{padding:16px 18px}
+    .tab-pane{display:none}.tab-pane.active{display:block}
+    label{font-size:.7rem;color:var(--dim);display:block;margin-bottom:4px;margin-top:10px}
+    select,input[type=range]{width:100%;accent-color:var(--cyan)}
+    select{padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:#fff;font-size:.8rem}
+    .btn-action{margin-top:12px;padding:11px 18px;border:none;border-radius:10px;width:100%;font-family:'Poppins',sans-serif;font-weight:600;font-size:.82rem;cursor:pointer;background:linear-gradient(135deg,var(--purple),var(--cyan));color:#fff;box-shadow:0 0 22px rgba(124,58,237,.3)}
+    .output{margin-top:12px;padding:14px;border-radius:12px;border:1px solid var(--border);background:rgba(0,229,255,.03);font-size:.8rem;line-height:1.55;color:var(--dim);max-height:200px;overflow-y:auto}
+    .output strong{color:#fff}.output em{color:#A78BFA}
+    .error{color:#FCA5A5}.success{color:#6EE7B7}
+    .contrib{margin-bottom:8px}
+    .contrib-head{display:flex;justify-content:space-between;font-size:.7rem;color:var(--dim);margin-bottom:3px}
+    .contrib-track{height:4px;background:rgba(255,255,255,.08);border-radius:4px;overflow:hidden}
+    .contrib-fill{height:100%;background:linear-gradient(90deg,var(--purple),var(--cyan))}
+    .rec{padding:10px;margin-top:8px;border-radius:10px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2)}
+    .priority-item{display:flex;align-items:center;gap:12px;padding:10px 12px;margin-bottom:6px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,.02);cursor:pointer;transition:border-color .2s}
+    .priority-item:hover{border-color:var(--cyan)}
+    .pr-rank{font-family:'Poppins',sans-serif;font-weight:800;color:var(--cyan);min-width:24px}
+    .pr-cool{font-size:.75rem;font-weight:700;color:#6EE7B7}
+    footer{text-align:center;padding:20px;font-size:.72rem;color:var(--dim);border-top:1px solid var(--border)}
+    footer span{color:var(--cyan)}
+    .leaflet-container{background:#0a0f1a;font-family:'Inter',sans-serif}
+    
+    /* Search Bar */
+    .search-box { display:flex; align-items:center; gap:8px; background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:8px; padding:4px 12px; }
+    .search-box input { background:transparent; border:none; color:white; font-family:'Inter'; font-size:0.8rem; outline:none; width: 200px; }
+    .search-box button { background:transparent; border:none; color:var(--cyan); cursor:pointer; font-weight:700; }
+
+    /* AI WIDGET */
+    .ai-widget{position:fixed;bottom:32px;right:32px;z-index:500}
+    .ai-widget-btn{width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--purple),var(--cyan));border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1.5rem;box-shadow:0 0 30px var(--glow);animation:wFloat 3s ease-in-out infinite; color: white;}
+    @keyframes wFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+    .ai-widget-btn:hover{animation:none;transform:scale(1.1)}
+    .ai-popup{position:absolute;bottom:72px;right:0;width:320px;padding:20px;display:none; background:rgba(15,23,42,0.95); backdrop-filter:blur(20px); border:1px solid var(--border); border-radius:16px; box-shadow:0 0 40px rgba(0,0,0,0.5);}
+    .ai-popup.open{display:flex; flex-direction:column; animation:popIn .3s ease}
+    @keyframes popIn{from{opacity:0;transform:scale(.9) translateY(10px)}to{opacity:1;transform:scale(1) translateY(0)}}
+    .ai-pop-tag{font-size:.6875rem;color:var(--cyan);font-weight:700;letter-spacing:.1em;margin-bottom:12px; border-bottom:1px solid var(--border); padding-bottom:8px;}
+    .chat-messages { display:flex; flex-direction:column; gap:8px; max-height:250px; overflow-y:auto; margin-bottom:12px; font-size: 0.8rem; }
+    .msg-user { background: rgba(0,229,255,0.1); padding: 8px 12px; border-radius: 8px; align-self: flex-end; max-width: 85%; }
+    .msg-ai { background: rgba(124,58,237,0.1); padding: 8px 12px; border-radius: 8px; align-self: flex-start; max-width: 85%; }
+    .chat-input-box { display:flex; gap:8px; }
+    .chat-input-box input { flex:1; background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:6px; padding:8px; color:white; outline:none; font-size: 0.8rem; }
+    .chat-input-box button { background:linear-gradient(135deg,var(--purple),var(--cyan)); border:none; padding:8px 12px; border-radius:6px; color:white; cursor:pointer; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <canvas id="bgCanvas"></canvas>
+  <div class="scan-line"></div>
+  <div id="preloader">
+    <div class="pre-orb"></div>
+    <div class="pre-text">INITIALIZING HEATVISION AI…</div>
+  </div>
+
+  <nav>
+    <div class="logo"><div class="logo-icon">🌡️</div>Heat<span>Vision</span> AI</div>
+    <div class="nav-actions">
+      <div class="search-box">
+        <input type="text" id="citySearch" placeholder="Search any city in India..." />
+        <button id="searchBtn">🔍</button>
+      </div>
+      <span class="live-badge" id="liveBadge">Live data</span>
+      <button class="btn-refresh" id="refreshBtn">↻ Refresh</button>
+    </div>
+  </nav>
+
+  <div class="app">
+    <div class="container">
+      <div class="hero">
+        <div class="hero-tag">ISRO HACKATHON 2026 · LIVE URBAN HEAT ANALYSIS</div>
+        <h1>Urban Heat Hotspot & Cooling Platform</h1>
+        <p id="heroSub">Live OpenWeather per-cell temperatures · OpenStreetMap land cover · Isolation Forest ML</p>
+      </div>
+
+      <div class="stats" id="statsRow">
+        <div class="stat"><div class="stat-label">Mean temp</div><div class="stat-val" id="sMean">—</div></div>
+        <div class="stat"><div class="stat-label">Peak temp</div><div class="stat-val" id="sMax">—</div></div>
+        <div class="stat"><div class="stat-label">Hotspots</div><div class="stat-val" id="sHot">—</div></div>
+        <div class="stat"><div class="stat-label">ML anomalies</div><div class="stat-val" id="sMl">—</div></div>
+        <div class="stat"><div class="stat-label">City</div><div class="stat-val" id="sCity" style="font-size:1rem">—</div></div>
+        <div class="stat"><div class="stat-label">Data source</div><div class="stat-val" id="sSrc" style="font-size:.9rem">live</div></div>
+      </div>
+
+      <div class="map-shell">
+        <div class="map-toolbar">
+          <span class="map-title" id="mapTitle">🛰️ India urban heat overview</span>
+          <span class="chip">Isolation Forest</span>
+          <span class="chip">K-Means</span>
+          <span class="chip" id="coordChip">Overview</span>
+        </div>
+        <div class="map-wrap">
+          <div class="map-overlay hidden" id="mapOverlay">
+            <div class="pre-text">Fetching live data…</div>
+          </div>
+          <div id="map"></div>
+        </div>
+      </div>
+
+      <div class="dock">
+        <div class="dock-tabs">
+          <button class="dock-tab active" data-tab="analysis">Root Cause & Cooling</button>
+          <button class="dock-tab" data-tab="simulator">What-If Simulator</button>
+          <button class="dock-tab" data-tab="priority">Priority Zones</button>
+        </div>
+        <div class="dock-body">
+          <div class="tab-pane active" id="tab-analysis">
+            <label for="cellSelect">Select hotspot cell</label>
+            <select id="cellSelect"></select>
+            <button class="btn-action" id="analyzeBtn">Analyze & recommend cooling</button>
+            <div class="output" id="outAnalysis">Select a cell and run analysis.</div>
+          </div>
+          <div class="tab-pane" id="tab-simulator">
+            <label for="simCell">Cell</label>
+            <select id="simCell"></select>
+            <label>Tree cover +%: <strong id="treeVal">20</strong></label>
+            <input id="treeDelta" type="range" min="0" max="40" value="20" />
+            <label>Cool roof %: <strong id="roofVal">30</strong></label>
+            <input id="roofPct" type="range" min="0" max="80" value="30" />
+            <button class="btn-action" id="simBtn">Run what-if simulation</button>
+            <div class="output" id="outSim">Adjust sliders and run simulation.</div>
+          </div>
+          <div class="tab-pane" id="tab-priority">
+            <div id="priorityList"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <footer>Heat<span>Vision</span> AI · Live urban heat platform · ISRO Hackathon 2026</footer>
+  </div>
+
+  <!-- AI WIDGET -->
+  <div class="ai-widget">
+    <div class="ai-popup" id="aiPopup">
+      <div class="ai-pop-tag">🤖 HEATVISION AI ADVISOR</div>
+      <div class="chat-messages" id="chatMsgs">
+        <div class="msg-ai">Hello! I'm HeatVision AI. Ask me about cooling recommendations for the hotspots above.</div>
+      </div>
+      <div class="chat-input-box">
+        <input type="text" id="chatInput" placeholder="Ask a question..." />
+        <button id="chatBtn">Send</button>
+      </div>
+    </div>
+    <button class="ai-widget-btn" id="aiBtn">🤖</button>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const API = localStorage.getItem('API_BASE') || 'http://localhost:8000';
+    const map = L.map('map', { zoomControl: false }).setView([22.5937, 78.9629], 5);
+    L.control.zoom({ position: 'topright' }).addTo(map);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution: '© OSM' }).addTo(map);
+    const layerGroup = L.layerGroup().addTo(map);
+    let dashData = null;
+    let lastBbox = null;
+
+    let currentCity = '';
+
+    window.addEventListener('load', () => {
+      bgCanvas();
+      document.getElementById('preloader').classList.add('hidden');
+      
+      // Map Click for Reverse Geocoding
+      map.on('click', async (e) => {
+        const overlay = document.getElementById('mapOverlay');
+        overlay.classList.remove('hidden');
+        overlay.querySelector('.pre-text').textContent = "Identifying city...";
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${e.latlng.lat}&lon=${e.latlng.lng}`);
+          const data = await res.json();
+          const city = data.address?.city || data.address?.town || data.address?.village || data.address?.state_district;
+          if (city) {
+            currentCity = city;
+            document.getElementById('citySearch').value = city;
+            await loadDashboard(city);
+          } else {
+            alert("Could not identify a city at this location.");
+            overlay.classList.add('hidden');
+          }
+        } catch (err) {
+          console.error(err);
+          overlay.classList.add('hidden');
+        }
+      });
+      
+      // Refresh button is now used to reset the map
+      document.getElementById('refreshBtn').onclick = () => {
+        currentCity = '';
+        document.getElementById('citySearch').value = '';
+        layerGroup.clearLayers();
+        map.setView([22.5937, 78.9629], 5);
+        document.getElementById('mapTitle').textContent = '🛰️ Select a city on the map';
+        document.getElementById('sCity').textContent = 'India Overview';
+        document.getElementById('sMean').textContent = '—';
+        document.getElementById('sMax').textContent = '—';
+        document.getElementById('sHot').textContent = '—';
+        document.getElementById('sMl').textContent = '—';
+      };
+
+      // AI Widget Toggle
+      document.getElementById('aiBtn').onclick = () => {
+        document.getElementById('aiPopup').classList.toggle('open');
+      };
+      
+      // Search
+      document.getElementById('searchBtn').onclick = async () => {
+        const c = document.getElementById('citySearch').value.trim();
+        if(c) { 
+          currentCity = c;
+          const overlay = document.getElementById('mapOverlay');
+          overlay.classList.remove('hidden');
+          overlay.querySelector('.pre-text').textContent = "Locating " + c + "...";
+          try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(c)}&countrycodes=in`);
+            const data = await res.json();
+            if(data && data.length > 0) {
+              const lat = parseFloat(data[0].lat);
+              const lon = parseFloat(data[0].lon);
+              map.setView([lat, lon], 12);
+              document.getElementById('mapTitle').textContent = `🛰️ Selected: ${c}`;
+              await loadDashboard(currentCity);
+            } else {
+              alert("Could not find location.");
+              overlay.classList.add('hidden');
+            }
+          } catch(e) { 
+            console.error(e); 
+            overlay.classList.add('hidden');
+          }
+        }
+      };
+      document.getElementById('citySearch').onkeyup = (e) => {
+        if(e.key === 'Enter') document.getElementById('searchBtn').click();
+      };
+    });
+
+    function bgCanvas() {
+      const c = document.getElementById('bgCanvas'), ctx = c.getContext('2d');
+      let t = 0;
+      function draw() {
+        const W = c.width = innerWidth, H = c.height = innerHeight;
+        ctx.clearRect(0, 0, W, H);
+        const g = ctx.createRadialGradient(W * .3, H * .2, 0, W * .3, H * .2, W * .5);
+        g.addColorStop(0, 'rgba(124,58,237,.06)'); g.addColorStop(1, 'transparent');
+        ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+        t += .016; requestAnimationFrame(draw);
+      }
+      draw();
+    }
+
+    document.querySelectorAll('.dock-tab').forEach(tab => {
+      tab.onclick = () => {
+        document.querySelectorAll('.dock-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      };
+    });
+
+    async function loadDashboard(city) {
+      const overlay = document.getElementById('mapOverlay');
+      overlay.classList.remove('hidden');
+      overlay.querySelector('.pre-text').textContent = `Fetching live data for ${city}…`;
+      document.getElementById('preloader').classList.add('hidden'); // ensure main preloader is gone
+      try {
+        const res = await fetch(`${API}/api/v1/locations/dashboard?city=${encodeURIComponent(city)}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Dashboard load failed');
+        dashData = data;
+        renderDashboard(data);
+        document.getElementById('liveBadge').textContent = `● Live ${data.city}`;
+        document.getElementById('liveBadge').classList.remove('warn');
+      } catch (e) {
+        document.getElementById('liveBadge').textContent = 'Offline';
+        document.getElementById('liveBadge').classList.add('warn');
+        document.getElementById('outAnalysis').innerHTML = `<span class="error">${e.message}.</span>`;
+      }
+      overlay.classList.add('hidden');
+    }
+
+    function renderDashboard(d) {
+      const h = d.hotspots;
+      const s = h.stats;
+      document.getElementById('sMean').textContent = s.mean_temp_c + '°C';
+      document.getElementById('sMax').textContent = s.max_temp_c + '°C';
+      document.getElementById('sHot').textContent = s.hotspot_count;
+      document.getElementById('sMl').textContent = d.ml_hotspot_count;
+      document.getElementById('sCity').textContent = d.city;
+      document.getElementById('sSrc').textContent = d.data_source;
+      document.getElementById('heroSub').textContent = d.formatted_address + ' · avg ' + d.base_temperature_c + '°C';
+      document.getElementById('mapTitle').textContent = '🛰️ ' + d.city + ' urban heat · ' + d.ml_model;
+      renderMap(h);
+      renderPriority(d.priority.rankings);
+    }
+
+    function tempColor(t, min, max) {
+      const r = Math.round(255 * (t - min) / Math.max(max - min, .1));
+      const g = Math.round(255 * (1 - (t - min) / Math.max(max - min, .1)));
+      return `rgb(${r},${g},40)`;
+    }
+
+    function renderMap(data) {
+      const cells = data.cells;
+      const temps = cells.map(c => c.temperature_c);
+      const minT = Math.min(...temps), maxT = Math.max(...temps);
+      layerGroup.clearLayers();
+      const sel = document.getElementById('cellSelect');
+      const simSel = document.getElementById('simCell');
+      sel.innerHTML = ''; simSel.innerHTML = '';
+      lastBbox = data.bbox;
+      if (lastBbox?.length === 4) {
+        map.fitBounds([[lastBbox[1], lastBbox[0]], [lastBbox[3], lastBbox[2]]]);
+      }
+      cells.forEach(c => {
+        const isMl = c.ml_is_hotspot;
+        const border = c.severity === 'high' ? '#ef4444' : (isMl ? '#a855f7' : '#f97316');
+        L.geoJSON(c.geometry, {
+          style: { fillColor: tempColor(c.temperature_c, minT, maxT), color: border, weight: isMl ? 3 : 2, fillOpacity: .7 },
+          onEachFeature: (_, layer) => {
+            layer.bindTooltip(`${c.cell_id}: ${c.temperature_c}°C`);
+            layer.on('click', (e) => { 
+              L.DomEvent.stopPropagation(e);
+              sel.value = c.cell_id; simSel.value = c.cell_id; 
+            });
+          }
+        }).addTo(layerGroup);
+        const opt = document.createElement('option');
+        opt.value = c.cell_id;
+        opt.textContent = `${c.cell_id} (${c.temperature_c}°C, ${c.severity})`;
+        sel.appendChild(opt);
+        simSel.appendChild(opt.cloneNode(true));
+      });
+    }
+
+    function renderPriority(rankings) {
+      const list = document.getElementById('priorityList');
+      list.innerHTML = rankings.map(item => `
+        <div class="priority-item" data-cell="${item.cell_id}">
+          <div class="pr-rank">#${item.rank}</div>
+          <div style="flex:1"><strong>${item.cell_id}</strong><br/><span style="font-size:.7rem;color:var(--dim)">${item.recommended_action.replace(/_/g,' ')} · ROI ${item.intervention_roi}</span></div>
+          <div class="pr-cool">−${item.expected_cooling_c}°C</div>
+        </div>`).join('');
+      list.querySelectorAll('.priority-item').forEach(el => {
+        el.onclick = () => {
+          document.getElementById('cellSelect').value = el.dataset.cell;
+          document.querySelector('[data-tab="analysis"]').click();
+        };
+      });
+    }
+
+    document.getElementById('analyzeBtn').onclick = async () => {
+      const id = document.getElementById('cellSelect').value;
+      const out = document.getElementById('outAnalysis');
+      if (!id) return;
+      out.textContent = 'Analyzing…';
+      try {
+        const [a, r] = await Promise.all([
+          fetch(`${API}/api/v1/analysis/${id}`).then(x => x.json()),
+          fetch(`${API}/api/v1/recommendations`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ cell_id:id, budget_tier:'medium' }) }).then(x => x.json())
+        ]);
+        let html = `<strong>${id}</strong> — ${a.temperature_c}°C<br/><br/>${a.summary}<br/><br/>`;
+        a.contributors.forEach(c => {
+          const p = Math.round(c.score * 100);
+          html += `<div class="contrib"><div class="contrib-head"><span>${c.factor.replace(/_/g,' ')}</span><span>${p}%</span></div><div class="contrib-track"><div class="contrib-fill" style="width:${p}%"></div></div><div style="font-size:.65rem;margin-top:2px">${c.detail}</div></div>`;
+        });
+        html += `<br/><em>${r.narrative}</em>`;
+        r.recommendations.forEach(rec => {
+          html += `<div class="rec"><strong>${rec.action.replace(/_/g,' ')}</strong><br/>−${rec.estimated_cooling_c}°C · priority ${rec.priority}</div>`;
+        });
+        out.innerHTML = html;
+      } catch (e) { out.innerHTML = `<span class="error">${e.message}</span>`; }
+    };
+
+    document.getElementById('treeDelta').oninput = e => document.getElementById('treeVal').textContent = e.target.value;
+    document.getElementById('roofPct').oninput = e => document.getElementById('roofVal').textContent = e.target.value;
+
+    document.getElementById('simBtn').onclick = async () => {
+      const id = document.getElementById('simCell').value;
+      const out = document.getElementById('outSim');
+      try {
+        const s = await fetch(`${API}/api/v1/simulate`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ cell_id:id, scenarios:[
+            { intervention:'increase_tree_cover', delta_pct:+document.getElementById('treeDelta').value },
+            { intervention:'cool_roofs', coverage_pct:+document.getElementById('roofPct').value }
+          ]})
+        }).then(x => x.json());
+        let html = `Baseline <strong>${s.baseline_temp_c}°C</strong><br/>`;
+        s.results.forEach(r => html += `<div class="rec">${r.intervention.replace(/_/g,' ')} → ${r.projected_temp_c}°C (−${r.cooling_c}°C)</div>`);
+        if (s.combined_projected_temp_c) html += `<br/><span class="success">Combined: ${s.combined_projected_temp_c}°C</span>`;
+        out.innerHTML = html;
+      } catch (e) { out.innerHTML = `<span class="error">${e.message}</span>`; }
+    };
+
+
+
+    map.on('mousemove', e => {
+      document.getElementById('coordChip').textContent = `${e.latlng.lat.toFixed(4)}°N ${e.latlng.lng.toFixed(4)}°E`;
+    });
+    
+    // AI Chat Implementation
+    document.getElementById('chatBtn').onclick = async () => {
+      const input = document.getElementById('chatInput');
+      const msg = input.value.trim();
+      if(!msg) return;
+      
+      const msgsDiv = document.getElementById('chatMsgs');
+      msgsDiv.innerHTML += `<div class="msg-user">${msg}</div>`;
+      input.value = '';
+      msgsDiv.scrollTop = msgsDiv.scrollHeight;
+      
+      // Get context from currently selected cell if available
+      let ctx = "";
+      const selectedId = document.getElementById('cellSelect').value;
+      if (selectedId && dashData) {
+        const cell = dashData.hotspots.cells.find(c => c.cell_id === selectedId);
+        if (cell) {
+          ctx = `Selected cell ${selectedId} in ${currentCity}: Temp ${cell.temperature_c}°C, Tree cover ${cell.tree_cover_pct}%, Impervious ${cell.impervious_pct}%. Severity: ${cell.severity}.`;
+        }
+      }
+      
+      const aiTyping = document.createElement('div');
+      aiTyping.className = 'msg-ai';
+      aiTyping.textContent = 'Thinking...';
+      msgsDiv.appendChild(aiTyping);
+      msgsDiv.scrollTop = msgsDiv.scrollHeight;
+      
+      try {
+        const res = await fetch(`${API}/api/v1/chat`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ message: msg, context: ctx })
+        });
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.detail || 'Failed');
+        aiTyping.innerHTML = data.reply.replace(/\n/g, '<br/>');
+      } catch (e) {
+        aiTyping.innerHTML = `<span class="error">Error: ${e.message}</span>`;
+      }
+      msgsDiv.scrollTop = msgsDiv.scrollHeight;
+    };
+    
+    document.getElementById('chatInput').onkeyup = (e) => {
+      if(e.key === 'Enter') document.getElementById('chatBtn').click();
+    };
+  </script>
+</body>
+</html>
