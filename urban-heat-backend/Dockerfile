@@ -12,8 +12,7 @@ RUN pip install -r requirements.txt
 
 COPY app ./app
 COPY scripts ./scripts
-COPY streamlit_app ./streamlit_app
-COPY .streamlit ./.streamlit
+
 
 EXPOSE 8000 8501
 
